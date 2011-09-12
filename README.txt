@@ -39,13 +39,10 @@ RUNNING
 There isn't an installer for this currently.  Perhaps one day...
 
 Windows users should be able to run the program by just doubleclicking on
-minecraft_xray.exe.
+minecraft_xray.exe or minecraft_xray.bat.
 
-OSX users should be able to doubleclick on minecraft_xray_osx.command or
-minecraft_xray.sh.
-
-Linux users can run minecraft_xray.sh (actually minecraft_xray_osx.command
-should work as well, come to that).
+Linux and OSX users should be able to doubleclick on either minecraft_xray.sh
+or minecraft_xray_osx.command (the files are actually identical).
 
 PROPERTIES FILE
 ---------------
@@ -57,7 +54,7 @@ alongside the ".minecraft" directory that Minecraft itself uses.
 
 File locations:
 
-    Windows: %appdata%/.minecraft_xray/xray.properties
+    Windows: %appdata%\.minecraft_xray\xray.properties
     OSX: ~/Library/Application Support/.minecraft_xray/xray.properties
     Linux: ~/.minecraft_xray/xray.properties 
 
@@ -71,38 +68,42 @@ But without the "KEY_" prefix.
 You can also set which resources you want to be highlightable in the app.
 For specifying resource highlights, you should use the following names:
 
-    BED                     ICE                      RED_ROSE                 
-    BEDROCK                 IRON_BLOCK               SAND                     
-    BOOKSHELF               IRON_DOOR                SANDSTONE                
-    BRICK                   IRON_ORE                 SAPLING                  
-    BROWN_MUSHROOM          JACK_O_LANTERN           SIGNPOST                 
-    BURNING_FURNACE         JUKEBOX                  SLAB                     
-    CACTUS                  LADDER                   SNOW                     
-    CAKE                    LAPIS_LAZULI_BLOCK       SNOW_BLOCK               
-    CHEST                   LAPIS_LAZULI_ORE         SOUL_SAND                
-    CLAY                    LAVA                     SPONGE                   
-    COAL_ORE                LEAVES                   STATIONARY_LAVA          
-    COBBLESTONE             LEVER                    STATIONARY_WATER         
-    COBBLESTONE_STAIRS      MINECART_TRACKS          STONE                    
-    CROPS                   MOB_SPAWNER              STONE_BUTTON             
-    DEAD_SHRUB              MOSSY_COBBLESTONE        STONE_PRESSURE_PLATE     
-    DETECTOR_RAIL           NETHERRACK               SUGARCANE                
-    DIAMOND_BLOCK           NOTE_BLOCK               TALL_GRASS               
-    DIAMOND_ORE             OBSIDIAN                 TNT                      
-    DIRT                    PISTON_BODY              TORCH                    
-    DISPENSER               PISTON_HEAD              TRAPDOOR                 
-    DOUBLE_SLAB             PISTON_STICKY_BODY       WALL_SIGN                
-    FARMLAND                PLANK                    WATER                    
-    FENCE                   PORTAL                   WEB                      
-    FIRE                    POWERED_RAIL             WOOD                     
-    FURNACE                 PUMPKIN                  WOODEN_DOOR              
-    GLASS                   REDSTONE_ORE             WOODEN_PRESSURE_PLATE    
-    GLOWING_REDSTONE_ORE    REDSTONE_REPEATER_OFF    WOODEN_STAIRS            
-    GLOWSTONE               REDSTONE_REPEATER_ON     WOOL                     
-    GOLD_BLOCK              REDSTONE_TORCH_OFF       WORKBENCH                
-    GOLD_ORE                REDSTONE_TORCH_ON        YELLOW_FLOWER            
-    GRASS                   REDSTONE_WIRE                                     
-    GRAVEL                  RED_MUSHROOM                                      
+    BED                     HUGE_RED_MUSHROOM        RED_MUSHROOM
+    BEDROCK                 ICE                      RED_ROSE
+    BOOKSHELF               IRON_BARS                SAND
+    BRICK                   IRON_BLOCK               SANDSTONE
+    BRICK_STAIRS            IRON_DOOR                SAPLING
+    BROWN_MUSHROOM          IRON_ORE                 SIGNPOST
+    BURNING_FURNACE         JACK_O_LANTERN           SLAB
+    CACTUS                  JUKEBOX                  SNOW
+    CAKE                    LADDER                   SNOW_BLOCK
+    CHEST                   LAPIS_LAZULI_BLOCK       SOUL_SAND
+    CLAY                    LAPIS_LAZULI_ORE         SPONGE
+    COAL_ORE                LAVA                     STATIONARY_LAVA
+    COBBLESTONE             LEAVES                   STATIONARY_WATER
+    COBBLESTONE_STAIRS      LEVER                    STONE
+    CROPS                   MELON                    STONE_BRICK
+    DEAD_SHRUB              MELON_STEM               STONE_BRICK_STAIRS
+    DETECTOR_RAIL           MINECART_TRACKS          STONE_BUTTON
+    DIAMOND_BLOCK           MOB_SPAWNER              STONE_PRESSURE_PLATE
+    DIAMOND_ORE             MOSSY_COBBLESTONE        STONE_SILVERFISH
+    DIRT                    NETHERRACK               SUGARCANE
+    DISPENSER               NOTE_BLOCK               TALL_GRASS
+    DOUBLE_SLAB             OBSIDIAN                 TNT
+    FARMLAND                PISTON_BODY              TORCH
+    FENCE                   PISTON_HEAD              TRAPDOOR
+    FENCE_GATE              PISTON_STICKY_BODY       VINE
+    FIRE                    PLANK                    WALL_SIGN
+    FURNACE                 PORTAL                   WATER
+    GLASS                   POWERED_RAIL             WEB
+    GLASS_PANE              PUMPKIN                  WOOD
+    GLOWING_REDSTONE_ORE    PUMPKIN_STEM             WOODEN_DOOR
+    GLOWSTONE               REDSTONE_ORE             WOODEN_PRESSURE_PLATE
+    GOLD_BLOCK              REDSTONE_REPEATER_OFF    WOODEN_STAIRS
+    GOLD_ORE                REDSTONE_REPEATER_ON     WOOL
+    GRASS                   REDSTONE_TORCH_OFF       WORKBENCH
+    GRAVEL                  REDSTONE_TORCH_ON        YELLOW_FLOWER
+    HUGE_BROWN_MUSHROOM     REDSTONE_WIRE
 
 Perhaps someday there'll be an actual GUI for specifying all this.
 
@@ -151,7 +152,40 @@ overridden, though.  The default keybindings are as follows:
         Show large map:         TAB
         Release Mouse:          ESC
         Quit:                   CTRL-Q
-		
+
+EXTRA BLOCK DEFINITIONS
+-----------------------
+
+As of version 3.3.0, X-Ray includes a mechanism to allow the user to
+define custom block types.  X-Ray will read any block definition file
+found inside the "blockdefs" directory inside .minecraft_xray.  This
+is located at:
+
+    Windows: %appdata%\.minecraft_xray\blockdefs\
+    OSX: ~/Library/Application Support/.minecraft_xray/blockdefs/
+    Linux: ~/.minecraft_xray/blockdefs/
+
+Each file must have a ".yaml" extension, and X-Ray won't read any file
+named "minecraft.yaml".  It would be best practice to name the file
+after the mod you're intending to support, such as "aether.yaml".  The
+file format is in YAML 1.1.  There should be some very detailed docs
+contained inside the global "minecraft.yaml" file (you can find this
+in X-Ray's own "blockdefs" directory, where you unpacked it).  Examples
+(and a copy of the global minecraft.yaml file) can be found here:
+
+    http://apocalyptech.com/minecraft/xray/modsupport.php
+
+As mentioned above, X-Ray will automatically attempt to load any YAML
+file it finds in the blockdefs directory, and it will display which ones
+it was able to load on the opening dialog.  If your file doesn't show up
+in the list, there's probably an error in it - you should be able to
+find that error in the file minecraft_xray_output_log.txt in the root
+X-Ray directory, unless you launched X-Ray from the EXE version.  To
+get the error report on Windows, launch X-Ray using the .BAT instead.
+Linux and OSX users will see the errors on the console X-Ray was launched
+from, as well.
+
+
 RENDERING DETAILS
 -----------------
 
@@ -225,3 +259,37 @@ you're looking at, including up/down.  If you want to "lock" the camera to
 the vertical axis, you can do so with "L," at which time moving forward/back
 will only move the camera horizontally.  You can still move the camera up
 and down manually, of course.
+
+OVERRIDING TEXTURES
+-------------------
+
+In general, X-Ray will attempt to use the same texture pack that Minecraft is
+using, but there may be some circumstances where you want X-Ray to use a
+particular texture.
+
+X-Ray will look in three locations for the texture information to load, in this
+order:
+
+  1) Inside the following directory, as an override:
+
+        Windows: %appdata%\.minecraft_xray\textures\
+        OSX: ~/Library/Application Support/.minecraft_xray/textures/
+        Linux: ~/.minecraft_xray/textures/
+
+  2) From the texture pack that Minecraft itself is set to use
+
+  3) Finally, from the builtin texture that Minecraft itself uses. This might
+     be a custom texture pack if you've patched the Minecraft JAR file directly
+     with a texture pack, with xau's mcpatcher or the like.
+
+The override texture directory mirrors the internal structure of the
+texturepacks, but should not be a zipfile. Right now there's really only two
+files that X-Ray will end up reading from this directory: terrain.png and
+misc/water.png. So, rather than packing those inside a zipfile, just put them
+inside the "textures" directory and restart X-Ray, if you wanted to manually
+override a texture.
+
+Note that this *will* work for files specified in custom block definition
+files (as described above).  For instance, if you're using Aethermod and want
+to override the "Icestone.png" file, you'd put your own Icestone.png file into
+.minecraft_xray/textures/aether/blocks/Icestone.png.

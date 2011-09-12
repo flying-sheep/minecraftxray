@@ -26,6 +26,7 @@
  */
 package com.apocalyptech.minecraft.xray;
 
+import java.lang.Math;
 import java.util.ArrayList;
 
 import org.lwjgl.opengl.GL11;
@@ -40,6 +41,14 @@ import com.apocalyptech.minecraft.xray.dtf.Tag;
 
 import static com.apocalyptech.minecraft.xray.MinecraftConstants.*;
 
+/**
+ * Chunk functions, including the meat of our rendering stuffs
+ *
+ * TODO: There are a lot of functions that do very similar things in here, it would be
+ * good to consolidate some of those.  I don't know why it took me so long to come
+ * up with the current implementation of renderVertical and renderHorizontal - I suspect
+ * that much of the rendering code would be improved by moving to those if possible.
+ */
 public class Chunk {
 	private int displayListNum;
 	private int transparentListNum;
@@ -55,6 +64,12 @@ public class Chunk {
 	private ArrayList<PaintingEntity> paintings;
 	
 	private MinecraftLevel level;
+
+	private final float fence_postsize = .125f;
+	private final float fence_postsize_h = fence_postsize/2f;
+	private final float fence_slat_height = .1875f;
+	private final float fence_top_slat_offset = .375f;
+	private final float fence_slat_start_offset = -.125f;
 	
 	public Chunk(MinecraftLevel level, Tag data) {
 		
@@ -104,7 +119,110 @@ public class Chunk {
 	public ShortArrayTag getMapData() {
 		return this.blockData;
 	}
+
+	/**
+	 * Gets the Block ID of the block immediately to the north.  This might
+	 * load in the adjacent chunk, if needed.  Will return -1 if that adjacent
+	 * chunk can't be found.
+	 */
+	private short getAdjNorthBlockId(int x, int y, int z, int blockOffset)
+	{
+		if (x > 0)
+		{
+			return blockData.value[blockOffset-BLOCKSPERCOLUMN];
+		}
+		else
+		{
+			Chunk otherChunk = level.getChunk(this.x-1, this.z);
+			if (otherChunk == null)
+			{
+				return -1;
+			}
+			else
+			{
+				return otherChunk.getBlock(15, y, z);
+			}
+		}
+	}
+
+	/**
+	 * Gets the Block ID of the block immediately to the south.  This might
+	 * load in the adjacent chunk, if needed.  Will return -1 if that adjacent
+	 * chunk can't be found.
+	 */
+	private short getAdjSouthBlockId(int x, int y, int z, int blockOffset)
+	{
+		if (x < 15)
+		{
+			return blockData.value[blockOffset+BLOCKSPERCOLUMN];
+		}
+		else
+		{
+			Chunk otherChunk = level.getChunk(this.x+1, this.z);
+			if (otherChunk == null)
+			{
+				return -1;
+			}
+			else
+			{
+				return otherChunk.getBlock(0, y, z);
+			}
+		}
+	}
+
+	/**
+	 * Gets the Block ID of the block immediately to the east.  This might
+	 * load in the adjacent chunk, if needed.  Will return -1 if that adjacent
+	 * chunk can't be found.
+	 */
+	private short getAdjEastBlockId(int x, int y, int z, int blockOffset)
+	{
+		if (z > 0)
+		{
+			return blockData.value[blockOffset-BLOCKSPERROW];
+		}
+		else
+		{
+			Chunk otherChunk = level.getChunk(this.x, this.z-1);
+			if (otherChunk == null)
+			{
+				return -1;
+			}
+			else
+			{
+				return otherChunk.getBlock(x, y, 15);
+			}
+		}
+	}
+
+	/**
+	 * Gets the Block ID of the block immediately to the west.  This might
+	 * load in the adjacent chunk, if needed.  Will return -1 if that adjacent
+	 * chunk can't be found.
+	 */
+	private short getAdjWestBlockId(int x, int y, int z, int blockOffset)
+	{
+		if (z < 15)
+		{
+			return blockData.value[blockOffset+BLOCKSPERROW];
+		}
+		else
+		{
+			Chunk otherChunk = level.getChunk(this.x, this.z+1);
+			if (otherChunk == null)
+			{
+				return -1;
+			}
+			else
+			{
+				return otherChunk.getBlock(x, y, 0);
+			}
+		}
+	}
 	
+	/**
+	 * Render something which is a North/South face.
+	 */
 	public void renderNorthSouth(int t, float x, float y, float z) {
 		this.renderNorthSouth(t, x, y, z, 0.5f, 0.5f);
 	}
@@ -199,6 +317,9 @@ public class Chunk {
 		
 	}
 	
+	/**
+	 * Render the top or bottom of a block, depending on how we're looking at it.
+	 */
 	public void renderTopDown(int t, float x, float y, float z) {
 		this.renderTopDown(t, x, y, z, 0.5f);
 	}
@@ -229,6 +350,9 @@ public class Chunk {
 	}
 	
 
+	/**
+	 * Renders something which is a West/East face.
+	 */
 	public void renderWestEast(int t, float x, float y, float z) {
 		this.renderWestEast(t, x, y, z, 0.5f, 0.5f);
 	}
@@ -258,10 +382,20 @@ public class Chunk {
 			GL11.glVertex3f(x+xzScale, y-xzScale, z-xzScale);
 		GL11.glEnd();
 	}
-	
+
+
+	/**
+	 * Renders a vertical texture with a full square texture.
+	 */
+	public void renderVertical(int t, float x1, float z1, float x2, float z2, float y, float height) {
+		renderVertical(t, x1, z1, x2, z2, y, height, 16, 16, 0, 0);
+	}
+
 	/**
 	 * Renders a somewhat-arbitrary vertical rectangle.  Pass in (x, z) pairs for the endpoints,
-	 * and information about the height.
+	 * and information about the height.  The texture variables given are in terms of 1/16ths of
+	 * the texture square, which means that for the default Minecraft 16x16 texture, they're in
+	 * pixels.
 	 * 
 	 * @param t Texture to draw
 	 * @param x1
@@ -271,22 +405,25 @@ public class Chunk {
 	 * @param y	The lower part of the rectangle
 	 * @param height Height of the rectangle.
 	 */
-	public void renderVertical(int t, float x1, float z1, float x2, float z2, float y, float height) {
+	public void renderVertical(int t, float x1, float z1, float x2, float z2, float y, float height, int tex_width, int tex_height, int tex_start_x, int tex_start_y) {
 
-		float bx = precalcSpriteSheetToTextureX[t];
-		float by = precalcSpriteSheetToTextureY[t];
+		float bx = precalcSpriteSheetToTextureX[t]+(TEX256*tex_start_x);
+		float by = precalcSpriteSheetToTextureY[t]+(TEX512*tex_start_y);
+
+		float tdx = TEX256*tex_width;
+		float tdy = TEX512*tex_height;
 
 		GL11.glBegin(GL11.GL_TRIANGLE_STRIP);
 			GL11.glTexCoord2f(bx, by);
 			GL11.glVertex3f(x1, y+height, z1);
 	
-			GL11.glTexCoord2f(bx+TEX16, by);
+			GL11.glTexCoord2f(bx+tdx, by);
 			GL11.glVertex3f(x2, y+height, z2);
 	
-			GL11.glTexCoord2f(bx, by+TEX32);
+			GL11.glTexCoord2f(bx, by+tdy);
 			GL11.glVertex3f(x1, y, z1);
 	
-			GL11.glTexCoord2f(bx+TEX16, by+TEX32);
+			GL11.glTexCoord2f(bx+tdx, by+tdy);
 			GL11.glVertex3f(x2, y, z2);
 		GL11.glEnd();
 	}
@@ -363,9 +500,19 @@ public class Chunk {
 			GL11.glVertex3f(x2, y2, z2);
 		GL11.glEnd();
 	}
+
+	/**
+	 * Renders a "default" horizontal rectangle, using a full square for the texture.
+	 */
+	public void renderHorizontal(int t, float x1, float z1, float x2, float z2, float y) {
+		renderHorizontal(t, x1, z1, x2, z2, y, 16, 16, 0, 0, false);
+	}
 	
 	/**
-	 * Renders an arbitrary horizontal rectangle (will be orthogonal)
+	 * Renders an arbitrary horizontal rectangle (will be orthogonal).  The texture parameters
+	 * are specified in terms of 1/16ths of the texture (which equates to one pixel, when using
+	 * the default 16x16 Minecraft texture.
+	 *
 	 * @param t
 	 * @param x1
 	 * @param z1
@@ -373,23 +520,44 @@ public class Chunk {
 	 * @param z2
 	 * @param y
 	 */
-	public void renderHorizontal(int t, float x1, float z1, float x2, float z2, float y) {
+	public void renderHorizontal(int t, float x1, float z1, float x2, float z2, float y, int tex_width, int tex_height, int tex_start_x, int tex_start_y, boolean flip_tex) {
 
-		float bx = precalcSpriteSheetToTextureX[t];
-		float by = precalcSpriteSheetToTextureY[t];
+		float bx = precalcSpriteSheetToTextureX[t]+(TEX256*tex_start_x);
+		float by = precalcSpriteSheetToTextureY[t]+(TEX512*tex_start_y);
+
+		float tdx = TEX256*tex_width;
+		float tdy = TEX512*tex_height;
 
 		GL11.glBegin(GL11.GL_TRIANGLE_STRIP);
-			GL11.glTexCoord2f(bx, by);
-			GL11.glVertex3f(x1, y, z1);
-	
-			GL11.glTexCoord2f(bx+TEX16, by);
-			GL11.glVertex3f(x1, y, z2);
-	
-			GL11.glTexCoord2f(bx, by+TEX32);
-			GL11.glVertex3f(x2, y, z1);
-	
-			GL11.glTexCoord2f(bx+TEX16, by+TEX32);
-			GL11.glVertex3f(x2, y, z2);
+			
+			if (flip_tex)
+			{
+				GL11.glTexCoord2f(bx, by);
+				GL11.glVertex3f(x1, y, z2);
+		
+				GL11.glTexCoord2f(bx+tdx, by);
+				GL11.glVertex3f(x2, y, z2);
+		
+				GL11.glTexCoord2f(bx, by+tdy);
+				GL11.glVertex3f(x1, y, z1);
+		
+				GL11.glTexCoord2f(bx+tdx, by+tdy);
+				GL11.glVertex3f(x2, y, z1);
+			}
+			else
+			{
+				GL11.glTexCoord2f(bx, by);
+				GL11.glVertex3f(x1, y, z1);
+		
+				GL11.glTexCoord2f(bx+tdx, by);
+				GL11.glVertex3f(x1, y, z2);
+		
+				GL11.glTexCoord2f(bx, by+tdy);
+				GL11.glVertex3f(x2, y, z1);
+		
+				GL11.glTexCoord2f(bx+tdx, by+tdy);
+				GL11.glVertex3f(x2, y, z2);
+			}
 		GL11.glEnd();
 	}
 	
@@ -802,43 +970,26 @@ public class Chunk {
 		GL11.glEnd();
 	}
 	
-	public void renderFenceBody(int t, float x1, float x2, float y, float z) {
-		
-		// Outside edges
-		this.renderVertical(t, x1, z+.35f, x2, z+.35f, y-0.5f, .7f);
-		this.renderVertical(t, x1, z-.35f, x2, z-.35f, y-0.5f, .7f);
-		
-		// Inside edges
-		this.renderVertical(t, x1, z+.25f, x2, z+.25f, y-0.5f, .7f);
-		this.renderVertical(t, x1, z-.25f, x2, z-.25f, y-0.5f, .7f);
-		
-		// Top edge
-		this.renderHorizontal(t, x1, z+.35f, x2, z-.35f, y+.2f);
-		
-		// Inner edges
-		this.renderHorizontal(t, x1, z+.25f, x2, z-.25f, y);
-		this.renderHorizontal(t, x1, z+.25f, x2, z-.25f, y-.1f);
-		this.renderHorizontal(t, x1, z+.25f, x2, z-.25f, y-.3f);
-	}
-	
-	public boolean isInRange(float x, float y, float maxDistance) {
-		float realX = this.x*16;
-		float realY = this.z*16;
-		double distance = Math.sqrt(((x-realX) * (x-realX)) + ((y-realY) * (y-realY)));
-		return distance < maxDistance;
-	}
-	
+	/**
+	 * Gets the block ID at the specified coordinate in the chunk.  This is
+	 * only really used in the getAdj*BlockId() methods.
+	 */
 	public short getBlock(int x, int y, int z) {
 		return blockData.value[y + (z * 128) + (x * 128 * 16)];
 	}
 
+	/**
+	 * Gets the block data at the specified coordinates.
+	 */
 	public byte getData(int x, int y, int z) {
 		int offset = y + (z * 128) + (x * 128 * 16);
 		int halfOffset = offset / 2;
 		if(offset % 2 == 0) {
 			return (byte) (mapData.value[halfOffset] & 0xF);
 		} else {
-			return (byte) (mapData.value[halfOffset] >> 4);
+			// We shouldn't have to &0xF here, but if we don't the value
+			// returned could be negative, even though that would be silly.
+			return (byte) ((mapData.value[halfOffset] >> 4) & 0xF);
 		}
 	}
 	
@@ -1256,6 +1407,53 @@ public class Chunk {
 	 			// South
 				this.renderNorthSouth(textureId, x+TEX64, y, z);
 	 			break;
+		 }
+	}
+    
+	/**
+	 * Renders a vine, given its attached-side data.  Pretty much identical
+	 * to renderLadder, except that there's different data values.  Alas!
+	 * 
+	 * @param textureId
+	 * @param xxx
+	 * @param yyy
+	 * @param zzz
+	 */
+	public void renderVine(int textureId, int xxx, int yyy, int zzz, int blockOffset) {
+		 float x = xxx + this.x*16;
+		 float z = zzz + this.z*16;
+		 float y = yyy;
+		 
+		 byte data = getData(xxx, yyy, zzz);
+		 boolean rendered = false;
+		 if ((data & 1) == 1)
+		 {
+			// West
+			this.renderWestEast(textureId, x, y, z+1.0f-TEX64);
+			rendered = true;
+		 }
+		 if ((data & 2) == 2)
+		 {
+			// North
+			this.renderNorthSouth(textureId, x+TEX64, y, z);
+			rendered = true;
+		 }
+		 if ((data & 4) == 4)
+		 {
+			// East
+			this.renderWestEast(textureId, x, y, z+TEX64);
+			rendered = true;
+		 }
+		 if ((data & 8) == 8)
+		 {
+			// South
+			this.renderNorthSouth(textureId, x+1.0f-TEX64, y, z);
+			rendered = true;
+		 }
+		 if (data == 0 || (rendered && yyy < 127 && isSolid(blockData.value[blockOffset+1])))
+		 {
+			// Top
+			this.renderHorizontal(textureId, x-.5f, z-.5f, x+.5f, z+.5f, y+.45f);
 		 }
 	}
 
@@ -1898,9 +2096,7 @@ public class Chunk {
 	}
 	
 	/**
-	 * Renders a fence.  Ideally we should try and figure out at least if
-	 * we can do it in one orientation versus another, but for now this will have to
-	 * do.
+	 * Renders a fence.
 	 * 
 	 * @param textureId
 	 * @param xxx
@@ -1908,87 +2104,250 @@ public class Chunk {
 	 * @param zzz
 	 * @param blockOffset Should be passed in from our main draw loop so we don't have to recalculate
 	 */
-	public void renderFence(int textureId, int xxx, int yyy, int zzz, int blockOffset, int blockId) {
+	public void renderFence(int textureId, int xxx, int yyy, int zzz, int blockOffset) {
 		float x = xxx + this.x*16;
 		float z = zzz + this.z*16;
 		float y = yyy;
-		float postsize = .1f;
-		float postsize_h = postsize/2f;
-		float slat_height = .2f;
-		float top_slat_offset = .3f;
-		float slat_start = y-.1f;
+		float slat_start = y+fence_slat_start_offset;
 		
 		// First the fencepost
-		this.renderVertical(textureId, x+postsize, z+postsize, x+postsize, z-postsize, y-0.5f, 1f);
-		this.renderVertical(textureId, x+postsize, z-postsize, x-postsize, z-postsize, y-0.5f, 1f);
-		this.renderVertical(textureId, x-postsize, z-postsize, x-postsize, z+postsize, y-0.5f, 1f);
-		this.renderVertical(textureId, x-postsize, z+postsize, x+postsize, z+postsize, y-0.5f, 1f);
-		this.renderHorizontal(textureId, x+postsize, z+postsize, x-postsize, z-postsize, y+0.5f);
+		this.renderVertical(textureId, x+fence_postsize, z+fence_postsize, x+fence_postsize, z-fence_postsize, y-0.5f, 1f, 4, 16, 6, 0);
+		this.renderVertical(textureId, x+fence_postsize, z-fence_postsize, x-fence_postsize, z-fence_postsize, y-0.5f, 1f, 4, 16, 6, 0);
+		this.renderVertical(textureId, x-fence_postsize, z-fence_postsize, x-fence_postsize, z+fence_postsize, y-0.5f, 1f, 4, 16, 6, 0);
+		this.renderVertical(textureId, x-fence_postsize, z+fence_postsize, x+fence_postsize, z+fence_postsize, y-0.5f, 1f, 4, 16, 6, 0);
+		this.renderHorizontal(textureId, x+fence_postsize, z+fence_postsize, x-fence_postsize, z-fence_postsize, y+0.5f, 4, 4, 6, 6, false);
 
 		// Check for adjacent fences in the -x direction
-		boolean have_adj = false;
-		if (xxx>0)
-		{
-			if (blockData.value[blockOffset-BLOCKSPERCOLUMN] == blockId)
-			{
-				have_adj = true;
-			}
-		}
-		else
-		{
-			Chunk otherChunk = level.getChunk(this.x-1, this.z);
-			if (otherChunk != null && otherChunk.getBlock(15, yyy, zzz) == blockId)
-			{
-				have_adj  = true;
-			}
-		}
-		if (have_adj)
+		if (this.getAdjNorthBlockId(xxx, yyy, zzz, blockOffset) == BLOCK_FENCE.id)
 		{
 			// Bottom slat
-			this.renderVertical(textureId, x-postsize, z+postsize_h, x-1f+postsize, z+postsize_h, slat_start, slat_height);
-			this.renderVertical(textureId, x-postsize, z-postsize_h, x-1f+postsize, z-postsize_h, slat_start, slat_height);
-			this.renderHorizontal(textureId, x-postsize, z+postsize_h, x-1f+postsize, z-postsize_h, slat_start);
-			this.renderHorizontal(textureId, x-postsize, z+postsize_h, x-1f+postsize, z-postsize_h, slat_start+slat_height);
+			this.renderVertical(textureId, x-fence_postsize, z+fence_postsize_h, x-1f+fence_postsize, z+fence_postsize_h, slat_start, fence_slat_height, 16, 3, 0, 5);
+			this.renderVertical(textureId, x-fence_postsize, z-fence_postsize_h, x-1f+fence_postsize, z-fence_postsize_h, slat_start, fence_slat_height, 16, 3, 0, 5);
+			this.renderHorizontal(textureId, x-fence_postsize, z+fence_postsize_h, x-1f+fence_postsize, z-fence_postsize_h, slat_start, 2, 16, 14, 0, false);
+			this.renderHorizontal(textureId, x-fence_postsize, z+fence_postsize_h, x-1f+fence_postsize, z-fence_postsize_h, slat_start+fence_slat_height, 2, 16, 14, 0, false);
 
 			// Top slat
-			this.renderVertical(textureId, x-postsize, z+postsize_h, x-1f+postsize, z+postsize_h, slat_start+top_slat_offset, slat_height);
-			this.renderVertical(textureId, x-postsize, z-postsize_h, x-1f+postsize, z-postsize_h, slat_start+top_slat_offset, slat_height);
-			this.renderHorizontal(textureId, x-postsize, z+postsize_h, x-1f+postsize, z-postsize_h, slat_start+top_slat_offset);
-			this.renderHorizontal(textureId, x-postsize, z+postsize_h, x-1f+postsize, z-postsize_h, slat_start+top_slat_offset+slat_height);
+			this.renderVertical(textureId, x-fence_postsize, z+fence_postsize_h, x-1f+fence_postsize, z+fence_postsize_h, slat_start+fence_top_slat_offset, fence_slat_height, 16, 3, 0, 5);
+			this.renderVertical(textureId, x-fence_postsize, z-fence_postsize_h, x-1f+fence_postsize, z-fence_postsize_h, slat_start+fence_top_slat_offset, fence_slat_height, 16, 3, 0, 5);
+			this.renderHorizontal(textureId, x-fence_postsize, z+fence_postsize_h, x-1f+fence_postsize, z-fence_postsize_h, slat_start+fence_top_slat_offset, 2, 16, 14, 0, false);
+			this.renderHorizontal(textureId, x-fence_postsize, z+fence_postsize_h, x-1f+fence_postsize, z-fence_postsize_h, slat_start+fence_top_slat_offset+fence_slat_height, 2, 16, 14, 0, false);
 		}
 		
 		// Check for adjacent fences in the -z direction
-		have_adj = false;
-		if(zzz>0)
+		if (this.getAdjEastBlockId(xxx, yyy, zzz, blockOffset) == BLOCK_FENCE.id)
 		{
-			if (blockData.value[blockOffset-BLOCKSPERROW] == blockId)
-			{
-				have_adj = true;
-			}
+			// Bottom slat
+			this.renderVertical(textureId, x+fence_postsize_h, z-fence_postsize, x+fence_postsize_h, z-1f+fence_postsize, slat_start, fence_slat_height, 16, 3, 0, 5);
+			this.renderVertical(textureId, x-fence_postsize_h, z-fence_postsize, x-fence_postsize_h, z-1f+fence_postsize, slat_start, fence_slat_height, 16, 3, 0, 5);
+			this.renderHorizontal(textureId, x+fence_postsize_h, z-fence_postsize, x-fence_postsize_h, z-1f+fence_postsize, slat_start, 2, 16, 14, 0, true);
+			this.renderHorizontal(textureId, x+fence_postsize_h, z-fence_postsize, x-fence_postsize_h, z-1f+fence_postsize, slat_start+fence_slat_height, 2, 16, 14, 0, true);
+
+			// Top slat
+			this.renderVertical(textureId, x+fence_postsize_h, z-fence_postsize, x+fence_postsize_h, z-1f+fence_postsize, slat_start+fence_top_slat_offset, fence_slat_height, 16, 3, 0, 5);
+			this.renderVertical(textureId, x-fence_postsize_h, z-fence_postsize, x-fence_postsize_h, z-1f+fence_postsize, slat_start+fence_top_slat_offset, fence_slat_height, 16, 3, 0, 5);
+			this.renderHorizontal(textureId, x+fence_postsize_h, z-fence_postsize, x-fence_postsize_h, z-1f+fence_postsize, slat_start+fence_top_slat_offset, 2, 16, 14, 0, true);
+			this.renderHorizontal(textureId, x+fence_postsize_h, z-fence_postsize, x-fence_postsize_h, z-1f+fence_postsize, slat_start+fence_top_slat_offset+fence_slat_height, 2, 16, 14, 0, true);
+		}
+	}
+	
+	/**
+	 * Renders a fence gate.  Good lord, this is a heck of a function.   I continually feel like I'm
+	 * going about these things in the wrong way.  Ah, well - it works.
+	 * 
+	 * @param textureId
+	 * @param xxx
+	 * @param yyy
+	 * @param zzz
+	 * @param blockOffset Should be passed in from our main draw loop so we don't have to recalculate
+	 */
+	public void renderFenceGate(int textureId, int xxx, int yyy, int zzz, int blockOffset) {
+		float x = xxx + this.x*16;
+		float z = zzz + this.z*16;
+		float y = yyy;
+
+		float post_x1 = .375f;
+		float post_x2 = .5f;
+		float post_z = .0625f;
+		float post_y_start = -.1875f;
+		float post_h = .6875f;
+		float middle_w = .125f;
+		float middle_y = fence_slat_start_offset + fence_slat_height;
+		float middle_h = fence_slat_start_offset + fence_top_slat_offset - middle_y;
+		float middle_width = .0625f;
+
+		byte data = getData(xxx, yyy, zzz);
+		boolean open = ((data & 0x4) == 0x4);
+		int dir = (data & 0x3);
+
+		boolean have_fence_1 = false;
+		boolean have_fence_2 = false;
+
+		// GL stuff; only draw one way
+		GL11.glPushMatrix();
+		GL11.glTranslatef(x, y, z);
+		switch (dir)
+		{
+			case 1:
+				GL11.glRotatef(270f, 0f, 1f, 0f);
+				if (getAdjWestBlockId(xxx, yyy, zzz, blockOffset) == BLOCK_FENCE.id)
+				{
+					have_fence_1 = true;
+				}
+				if (getAdjEastBlockId(xxx, yyy, zzz, blockOffset) == BLOCK_FENCE.id)
+				{
+					have_fence_2 = true;
+				}
+				break;
+			case 2:
+				GL11.glRotatef(180f, 0f, 1f, 0f);
+				if (getAdjNorthBlockId(xxx, yyy, zzz, blockOffset) == BLOCK_FENCE.id)
+				{
+					have_fence_1 = true;
+				}
+				if (getAdjSouthBlockId(xxx, yyy, zzz, blockOffset) == BLOCK_FENCE.id)
+				{
+					have_fence_2 = true;
+				}
+				break;
+			case 3:
+				GL11.glRotatef(90f, 0f, 1f, 0f);
+				if (getAdjEastBlockId(xxx, yyy, zzz, blockOffset) == BLOCK_FENCE.id)
+				{
+					have_fence_1 = true;
+				}
+				if (getAdjWestBlockId(xxx, yyy, zzz, blockOffset) == BLOCK_FENCE.id)
+				{
+					have_fence_2 = true;
+				}
+				break;
+			case 0:
+			default:
+				if (getAdjSouthBlockId(xxx, yyy, zzz, blockOffset) == BLOCK_FENCE.id)
+				{
+					have_fence_1 = true;
+				}
+				if (getAdjNorthBlockId(xxx, yyy, zzz, blockOffset) == BLOCK_FENCE.id)
+				{
+					have_fence_2 = true;
+				}
+				break;
+		}
+
+		// One side post
+		this.renderVertical(textureId, post_x1, post_z, post_x2, post_z, post_y_start, post_h, 2, 11, 7, 0);
+		this.renderVertical(textureId, post_x1, -post_z, post_x2, -post_z, post_y_start, post_h, 2, 11, 7, 0);
+		this.renderVertical(textureId, post_x1, post_z, post_x1, -post_z, post_y_start, post_h, 2, 11, 7, 0);
+		this.renderVertical(textureId, post_x2, post_z, post_x2, -post_z, post_y_start, post_h, 2, 11, 7, 0);
+		this.renderHorizontal(textureId, post_x1, post_z, post_x2, -post_z, post_y_start, 2, 2, 7, 7, false);
+		this.renderHorizontal(textureId, post_x1, post_z, post_x2, -post_z, post_y_start+post_h, 2, 2, 7, 7, false);
+		
+		// ... and its connecting fence post, if it exists
+		if (have_fence_1)
+		{
+			// Bottom
+			this.renderVertical(textureId, post_x2, post_z, post_x2+.5f-fence_postsize, post_z, fence_slat_start_offset, fence_slat_height, 6, 3, 5, 7);
+			this.renderVertical(textureId, post_x2, -post_z, post_x2+.5f-fence_postsize, -post_z, fence_slat_start_offset, fence_slat_height, 6, 3, 5, 7);
+			this.renderHorizontal(textureId, post_x2, post_z, post_x2+.5f-fence_postsize, -post_z, fence_slat_start_offset, 6, 2, 5, 7, true);
+			this.renderHorizontal(textureId, post_x2, post_z, post_x2+.5f-fence_postsize, -post_z, fence_slat_start_offset+fence_slat_height, 6, 2, 5, 7, true);
+
+			// Top
+			this.renderVertical(textureId, post_x2, post_z, post_x2+.5f-fence_postsize, post_z, fence_slat_start_offset+fence_top_slat_offset, fence_slat_height, 6, 3, 5, 7);
+			this.renderVertical(textureId, post_x2, -post_z, post_x2+.5f-fence_postsize, -post_z, fence_slat_start_offset+fence_top_slat_offset, fence_slat_height, 6, 3, 5, 7);
+			this.renderHorizontal(textureId, post_x2, post_z, post_x2+.5f-fence_postsize, -post_z, fence_slat_start_offset+fence_top_slat_offset, 6, 2, 5, 7, true);
+			this.renderHorizontal(textureId, post_x2, post_z, post_x2+.5f-fence_postsize, -post_z, fence_slat_start_offset+fence_top_slat_offset+fence_slat_height, 6, 2, 5, 7, true);
+		}
+
+		// The other side post
+		this.renderVertical(textureId, -post_x1, post_z, -post_x2, post_z, post_y_start, post_h, 2, 11, 7, 0);
+		this.renderVertical(textureId, -post_x1, -post_z, -post_x2, -post_z, post_y_start, post_h, 2, 11, 7, 0);
+		this.renderVertical(textureId, -post_x1, post_z, -post_x1, -post_z, post_y_start, post_h, 2, 11, 7, 0);
+		this.renderVertical(textureId, -post_x2, post_z, -post_x2, -post_z, post_y_start, post_h, 2, 11, 7, 0);
+		this.renderHorizontal(textureId, -post_x1, post_z, -post_x2, -post_z, post_y_start, 2, 2, 7, 7, false);
+		this.renderHorizontal(textureId, -post_x1, post_z, -post_x2, -post_z, post_y_start+post_h, 2, 2, 7, 7, false);
+		
+		// ... and its connecting fence post, if it exists
+		if (have_fence_2)
+		{
+			// Bottom
+			this.renderVertical(textureId, -post_x2, post_z, -post_x2-.5f+fence_postsize, post_z, fence_slat_start_offset, fence_slat_height, 6, 3, 5, 7);
+			this.renderVertical(textureId, -post_x2, -post_z, -post_x2-.5f+fence_postsize, -post_z, fence_slat_start_offset, fence_slat_height, 6, 3, 5, 7);
+			this.renderHorizontal(textureId, -post_x2, post_z, -post_x2-.5f+fence_postsize, -post_z, fence_slat_start_offset, 6, 2, 5, 7, true);
+			this.renderHorizontal(textureId, -post_x2, post_z, -post_x2-.5f+fence_postsize, -post_z, fence_slat_start_offset+fence_slat_height, 6, 2, 5, 7, true);
+
+			// Top
+			this.renderVertical(textureId, -post_x2, post_z, -post_x2-.5f+fence_postsize, post_z, fence_slat_start_offset+fence_top_slat_offset, fence_slat_height, 6, 3, 5, 7);
+			this.renderVertical(textureId, -post_x2, -post_z, -post_x2-.5f+fence_postsize, -post_z, fence_slat_start_offset+fence_top_slat_offset, fence_slat_height, 6, 3, 5, 7);
+			this.renderHorizontal(textureId, -post_x2, post_z, -post_x2-.5f+fence_postsize, -post_z, fence_slat_start_offset+fence_top_slat_offset, 6, 2, 5, 7, true);
+			this.renderHorizontal(textureId, -post_x2, post_z, -post_x2-.5f+fence_postsize, -post_z, fence_slat_start_offset+fence_top_slat_offset+fence_slat_height, 6, 2, 5, 7, true);
+		}
+
+		// Now the gate itself
+		if (open)
+		{
+			// One side, bottom slat
+			this.renderVertical(textureId, post_x1, post_z, post_x1, .5f, fence_slat_start_offset, fence_slat_height, 6, 3, 5, 7);
+			this.renderVertical(textureId, post_x2, post_z, post_x2, .5f, fence_slat_start_offset, fence_slat_height, 6, 3, 5, 7);
+			this.renderHorizontal(textureId, post_x1, post_z, post_x2, .5f, fence_slat_start_offset, 6, 2, 5, 7, true);
+			this.renderHorizontal(textureId, post_x1, post_z, post_x2, .5f, fence_slat_start_offset+fence_slat_height, 6, 2, 5, 7, false);
+
+			// One side, top slat
+			this.renderVertical(textureId, post_x1, post_z, post_x1, .5f, fence_slat_start_offset+fence_top_slat_offset, fence_slat_height, 6, 3, 5, 7);
+			this.renderVertical(textureId, post_x2, post_z, post_x2, .5f, fence_slat_start_offset+fence_top_slat_offset, fence_slat_height, 6, 3, 5, 7);
+			this.renderHorizontal(textureId, post_x1, post_z, post_x2, .5f, fence_slat_start_offset+fence_top_slat_offset, 6, 2, 5, 7, true);
+			this.renderHorizontal(textureId, post_x1, post_z, post_x2, .5f, fence_slat_start_offset+fence_top_slat_offset+fence_slat_height, 6, 2, 5, 7, false);
+
+			// One side, middle bit
+			this.renderVertical(textureId, post_x1, .5f, post_x1, .5f-middle_w, middle_y, middle_h, 2, 3, 7, 5);
+			this.renderVertical(textureId, post_x2, .5f, post_x2, .5f-middle_w, middle_y, middle_h, 2, 3, 7, 5);
+			this.renderVertical(textureId, post_x1, .5f-middle_w, post_x2, .5f-middle_w, middle_y, middle_h, 2, 3, 7, 5);
+			this.renderVertical(textureId, post_x1, .5f, post_x2, .5f, fence_slat_start_offset, fence_slat_height+fence_top_slat_offset, 2, 9, 7, 0);
+
+			// Other side, bottom slat
+			this.renderVertical(textureId, -post_x1, post_z, -post_x1, .5f, fence_slat_start_offset, fence_slat_height, 6, 3, 5, 7);
+			this.renderVertical(textureId, -post_x2, post_z, -post_x2, .5f, fence_slat_start_offset, fence_slat_height, 6, 3, 5, 7);
+			this.renderHorizontal(textureId, -post_x1, post_z, -post_x2, .5f, fence_slat_start_offset, 6, 2, 5, 7, true);
+			this.renderHorizontal(textureId, -post_x1, post_z, -post_x2, .5f, fence_slat_start_offset+fence_slat_height, 6, 2, 5, 7, false);
+
+			// Other side, top slat
+			this.renderVertical(textureId, -post_x1, post_z, -post_x1, .5f, fence_slat_start_offset+fence_top_slat_offset, fence_slat_height, 6, 3, 5, 7);
+			this.renderVertical(textureId, -post_x2, post_z, -post_x2, .5f, fence_slat_start_offset+fence_top_slat_offset, fence_slat_height, 6, 3, 5, 7);
+			this.renderHorizontal(textureId, -post_x1, post_z, -post_x2, .5f, fence_slat_start_offset+fence_top_slat_offset, 6, 2, 5, 7, true);
+			this.renderHorizontal(textureId, -post_x1, post_z, -post_x2, .5f, fence_slat_start_offset+fence_top_slat_offset+fence_slat_height, 6, 2, 5, 7, false);
+
+			// Other side, middle bit
+			this.renderVertical(textureId, -post_x1, .5f, -post_x1, .5f-middle_w, middle_y, middle_h, 2, 3, 7, 5);
+			this.renderVertical(textureId, -post_x2, .5f, -post_x2, .5f-middle_w, middle_y, middle_h, 2, 3, 7, 5);
+			this.renderVertical(textureId, -post_x1, .5f-middle_w, -post_x2, .5f-middle_w, middle_y, middle_h, 2, 3, 7, 5);
+			this.renderVertical(textureId, -post_x1, .5f, -post_x2, .5f, fence_slat_start_offset, fence_slat_height+fence_top_slat_offset, 2, 9, 7, 0);
 		}
 		else
 		{
-			Chunk otherChunk = level.getChunk(this.x,this.z-1);
-			if(otherChunk != null && otherChunk.getBlock(xxx, yyy, 15) == blockId) {
-				have_adj = true;
-			}
-		}
-		if (have_adj)
-		{
-			// Bottom slat
-			this.renderVertical(textureId, x+postsize_h, z-postsize, x+postsize_h, z-1f+postsize, slat_start, slat_height);
-			this.renderVertical(textureId, x-postsize_h, z-postsize, x-postsize_h, z-1f+postsize, slat_start, slat_height);
-			this.renderHorizontal(textureId, x+postsize_h, z-postsize, x-postsize_h, z-1f+postsize, slat_start);
-			this.renderHorizontal(textureId, x+postsize_h, z-postsize, x-postsize_h, z-1f+postsize, slat_start+slat_height);
+			// Bottom bar
+			this.renderVertical(textureId, post_x1, post_z, -post_x1, post_z, fence_slat_start_offset, fence_slat_height, 12, 3, 2, 7);
+			this.renderVertical(textureId, post_x1, -post_z, -post_x1, -post_z, fence_slat_start_offset, fence_slat_height, 12, 3, 2, 7);
+			this.renderHorizontal(textureId, post_x1, post_z, -post_x1, -post_z, fence_slat_start_offset, 12, 2, 2, 3, true);
+			this.renderHorizontal(textureId, post_x1, post_z, -post_x1, -post_z, fence_slat_start_offset+fence_slat_height, 12, 2, 2, 3, true);
 
-			// Top slat
-			this.renderVertical(textureId, x+postsize_h, z-postsize, x+postsize_h, z-1f+postsize, slat_start+top_slat_offset, slat_height);
-			this.renderVertical(textureId, x-postsize_h, z-postsize, x-postsize_h, z-1f+postsize, slat_start+top_slat_offset, slat_height);
-			this.renderHorizontal(textureId, x+postsize_h, z-postsize, x-postsize_h, z-1f+postsize, slat_start+top_slat_offset);
-			this.renderHorizontal(textureId, x+postsize_h, z-postsize, x-postsize_h, z-1f+postsize, slat_start+top_slat_offset+slat_height);
+			// Top bar
+			this.renderVertical(textureId, post_x1, post_z, -post_x1, post_z, fence_slat_start_offset+fence_top_slat_offset, fence_slat_height, 12, 3, 2, 7);
+			this.renderVertical(textureId, post_x1, -post_z, -post_x1, -post_z, fence_slat_start_offset+fence_top_slat_offset, fence_slat_height, 12, 3, 2, 7);
+			this.renderHorizontal(textureId, post_x1, post_z, -post_x1, -post_z, fence_slat_start_offset+fence_top_slat_offset, 12, 2, 2, 3, true);
+			this.renderHorizontal(textureId, post_x1, post_z, -post_x1, -post_z, fence_slat_start_offset+fence_top_slat_offset+fence_slat_height, 12, 2, 2, 3, true);
+
+			// Middle bit
+			this.renderVertical(textureId, middle_w, post_z, -middle_w, post_z, middle_y, middle_h, 4, 3, 6, 5);
+			this.renderVertical(textureId, middle_w, -post_z, -middle_w, -post_z, middle_y, middle_h, 4, 3, 6, 5);
+			this.renderVertical(textureId, middle_w, middle_width, middle_w, -middle_width, middle_y, middle_h, 2, 3, 7, 5);
+			this.renderVertical(textureId, -middle_w, middle_width, -middle_w, -middle_width, middle_y, middle_h, 2, 3, 7, 5);
 		}
+
+		// aaand pop our GL matrix
+		GL11.glPopMatrix();
 	}
 
+	/**
+	 * Renders a button.
+	 */
 	public void renderButton(int textureId, int xxx, int yyy, int zzz) {
 		float x = xxx + this.x*16;
 		float z = zzz + this.z*16;
@@ -2071,62 +2430,32 @@ public class Chunk {
 		// Check to see where adjoining Portal spaces are, so we know which
 		// faces to draw
 		boolean drawWestEast = true;
-		
-		// Doing this in a for loop just so we can break out more
-		// easily once we find something
-		for (int i=0; i<1; i++)
+		if (this.getAdjNorthBlockId(xxx, yyy, zzz, blockOffset) == blockId ||
+				this.getAdjSouthBlockId(xxx, yyy, zzz, blockOffset) == blockId)
 		{
-			if (xxx>0)
-			{
-				if (blockData.value[blockOffset-BLOCKSPERCOLUMN] == blockId)
-				{
-					break;
-				}
-			}
-			else
-			{
-				Chunk otherChunk = level.getChunk(this.x-1, this.z);
-				if (otherChunk != null && otherChunk.getBlock(15, yyy, zzz) == blockId)
-				{
-					break;
-				}
-			}
-			
-			if (xxx<15)
-			{
-				if (blockData.value[blockOffset+BLOCKSPERCOLUMN] == blockId)
-				{
-					break;
-				}
-			}
-			else
-			{
-				Chunk otherChunk = level.getChunk(this.x+1, this.z);
-				if (otherChunk != null && otherChunk.getBlock(0, yyy, zzz) == blockId)
-				{
-					break;
-				}
-			}
-			
-			// If we've gotten here without finding a Portal space, we'll just assume that we're going in
-			// the other direction.
 			drawWestEast = false;
 		}
 
 		if (drawWestEast)
 		{
-			this.renderVertical(textureId, x-0.5f, z-0.3f, x+0.5f, z-0.3f, y-0.5f, 1.0f);
-			this.renderVertical(textureId, x-0.5f, z+0.3f, x+0.5f, z+0.3f, y-0.5f, 1.0f);
-		}
-		else
-		{
 			this.renderVertical(textureId, x-0.3f, z-0.5f, x-0.3f, z+0.5f, y-0.5f, 1.0f);
 			this.renderVertical(textureId, x+0.3f, z-0.5f, x+0.3f, z+0.5f, y-0.5f, 1.0f);
 		}
+		else
+		{
+			this.renderVertical(textureId, x-0.5f, z-0.3f, x+0.5f, z-0.3f, y-0.5f, 1.0f);
+			this.renderVertical(textureId, x-0.5f, z+0.3f, x+0.5f, z+0.3f, y-0.5f, 1.0f);
+		}
 	}
 	
+	/**
+	 * This is a bizarre little method, and should probably be both renamed and refactored
+	 * into some functions that make more sense.  It's used in a few places to determine
+	 * which faces of a block we're supposed to actually render.  "transparency" is whether
+	 * or not we're currently rendering transparent objects.
+	 */
 	public boolean checkSolid(short block, boolean transparency) {
-		if(block == 0) {
+		if(block <= 0) {
 			return true;
 		}
 		if (blockArray[block] == null)
@@ -2136,6 +2465,21 @@ public class Chunk {
 		return blockArray[block].isSolid() == transparency;
 	}
 
+	/**
+	 * This method, on the other hand, is a bit more clear.  We'll return true if the
+	 * block ID is solid.
+	 */
+	public boolean isSolid(short block)
+	{
+		if(block <= 0) {
+			return false;
+		}
+		if (blockArray[block] == null)
+		{
+			return false;
+		}
+		return blockArray[block].isSolid();
+	}
 	
 	/**
 	 * Renders the body of a piston.  If the piston is retracted, we'll also make a call out
@@ -2394,6 +2738,121 @@ public class Chunk {
 	}
 	
 	/**
+	 * Renders a sold pane-like object (glass pane, iron bars, etc)
+	 * 
+	 * @param textureId
+	 * @param xxx
+	 * @param yyy
+	 * @param zzz
+	 */
+	public void renderSolidPane(int textureId, int xxx, int yyy, int zzz, int blockOffset, int blockId) {
+		float x = xxx + this.x*16;
+		float z = zzz + this.z*16;
+		float y = yyy;
+
+		boolean has_north = false;
+		boolean has_south = false;
+		boolean has_west = false;
+		boolean has_east = false;
+
+		float top_width = .0625f;
+		int top_row_1 = 0;
+		int top_row_2 = 15;
+		if (blockId == BLOCK_IRON_BARS.id)
+		{
+			top_row_1 = 2;
+			top_row_2 = 3;
+		}
+
+		short temp_id;
+		temp_id = this.getAdjNorthBlockId(xxx, yyy, zzz, blockOffset);
+		if (temp_id == blockId || this.isSolid(temp_id))
+		{
+			has_north = true;
+		}
+		temp_id = this.getAdjSouthBlockId(xxx, yyy, zzz, blockOffset);
+		if (temp_id == blockId || this.isSolid(temp_id))
+		{
+			has_south = true;
+		}
+		temp_id = this.getAdjWestBlockId(xxx, yyy, zzz, blockOffset);
+		if (temp_id == blockId || this.isSolid(temp_id))
+		{
+			has_west = true;
+		}
+		temp_id = this.getAdjEastBlockId(xxx, yyy, zzz, blockOffset);
+		if (temp_id == blockId || this.isSolid(temp_id))
+		{
+			has_east = true;
+		}
+
+		if (!has_north && !has_south && !has_west && !has_east)
+		{
+			has_north = true;
+			has_south = true;
+			has_west = true;
+			has_east = true;
+		}
+
+		// Now we should be able to actually draw stuff
+		if (has_north && has_south)
+		{
+			this.renderVertical(textureId, x-.5f, z, x+.5f, z, y-.5f, 1f);
+		}
+		else
+		{
+			if (has_north)
+			{
+				this.renderVertical(textureId, x, z, x-.5f, z, y-.5f, 1f, 8, 16, 8, 0);
+			}
+			if (has_south)
+			{
+				this.renderVertical(textureId, x, z, x+.5f, z, y-.5f, 1f, 8, 16, 8, 0);
+			}
+		}
+		if (has_north)
+		{
+			this.renderHorizontal(textureId, x-.5f, z+top_width, x-top_width, z, y+.5f, 1, 7, top_row_1, 0, false);
+			this.renderHorizontal(textureId, x-.5f, z-top_width, x-top_width, z, y+.5f, 1, 7, top_row_2, 0, false);
+		}
+		if (has_south)
+		{
+			this.renderHorizontal(textureId, x+.5f, z+top_width, x+top_width, z, y+.5f, 1, 7, top_row_1, 0, false);
+			this.renderHorizontal(textureId, x+.5f, z-top_width, x+top_width, z, y+.5f, 1, 7, top_row_2, 0, false);
+		}
+
+		if (has_west && has_east)
+		{
+			this.renderVertical(textureId, x, z-.5f, x, z+.5f, y-.5f, 1f);
+		}
+		else
+		{
+			if (has_west)
+			{
+				this.renderVertical(textureId, x, z, x, z+.5f, y-.5f, 1f, 8, 16, 8, 0);
+			}
+			if (has_east)
+			{
+				this.renderVertical(textureId, x, z, x, z-.5f, y-.5f, 1f, 8, 16, 8, 0);
+			}
+		}
+		if (has_west)
+		{
+			this.renderHorizontal(textureId, x+top_width, z+.5f, x, z+top_width, y+.5f, 1, 7, top_row_1, 0, true);
+			this.renderHorizontal(textureId, x-top_width, z+.5f, x, z+top_width, y+.5f, 1, 7, top_row_2, 0, true);
+		}
+		if (has_east)
+		{
+			this.renderHorizontal(textureId, x+top_width, z-.5f, x, z-top_width, y+.5f, 1, 7, top_row_1, 0, true);
+			this.renderHorizontal(textureId, x-top_width, z-.5f, x, z-top_width, y+.5f, 1, 7, top_row_2, 0, true);
+		}
+
+		// Finally, the center top square.  Technically we shouldn't draw past the edge, but whatever.
+		this.renderHorizontal(textureId, x+top_width, z+top_width, x-top_width, z, y+.5f, 1, 2, top_row_1, 7, false);
+		this.renderHorizontal(textureId, x+top_width, z-top_width, x-top_width, z, y+.5f, 1, 2, top_row_2, 7, false);
+	}
+	
+	/**
 	 * Tests if the given source block has a torch nearby.  This is, I'm willing
 	 * to bet, the least efficient way possible of doing this.  It turns out that
 	 * despite that, it doesn't really have a noticeable impact on performance,
@@ -2604,51 +3063,27 @@ public class Chunk {
 							}
 							
 							// check left;
-							if(x>0 && blockData.value[blockOffset-BLOCKSPERCOLUMN] != BLOCK_BEDROCK.id) {
+							if (this.getAdjNorthBlockId(x, y, z, blockOffset) != BLOCK_BEDROCK.id) {
 								draw = true;
 								left = false;
-							} else if(x==0) {
-								Chunk leftChunk = level.getChunk(this.x-1, this.z);
-								if(leftChunk != null && leftChunk.getBlock(15, y, z) != BLOCK_BEDROCK.id) {
-									draw = true;
-									left = false;
-								}
 							}
 						
 							// check right
-							if(x<15 && blockData.value[blockOffset+BLOCKSPERCOLUMN] != BLOCK_BEDROCK.id) {
+							if (this.getAdjSouthBlockId(x, y, z, blockOffset) != BLOCK_BEDROCK.id) {
 								draw = true;
 								right = false;
-							} else if(x==15) {
-								Chunk rightChunk = level.getChunk(this.x+1,this.z);
-								if(rightChunk != null && rightChunk.getBlock(0, y, z) != BLOCK_BEDROCK.id) {
-									draw = true;
-									right = false;
-								}
 							}
 							
 							// check near
-							if(z>0 && blockData.value[blockOffset-BLOCKSPERROW] != BLOCK_BEDROCK.id) {
+							if (this.getAdjEastBlockId(x, y, z, blockOffset) != BLOCK_BEDROCK.id) {
 								draw = true;
 								near = false;
-							} else if(z==0) {
-								Chunk nearChunk = level.getChunk(this.x,this.z-1);
-								if(nearChunk != null && nearChunk.getBlock(x, y, 15) != BLOCK_BEDROCK.id) {
-									draw = true;
-									near = false;
-								}
 							}
 							
 							// check far
-							if(z<15 && blockData.value[blockOffset+BLOCKSPERROW] != BLOCK_BEDROCK.id) {
+							if (this.getAdjWestBlockId(x, y, z, blockOffset) != BLOCK_BEDROCK.id) {
 								draw = true;
 								far = false;
-							} else if(z==15) {
-								Chunk farChunk = level.getChunk(this.x,this.z+1);
-								if(farChunk != null && farChunk.getBlock(x, y, 0) != BLOCK_BEDROCK.id) {
-									draw = true;
-									far = false;
-								}
 							}
 						}
 						else
@@ -2666,51 +3101,27 @@ public class Chunk {
 							}
 							
 							// check left;
-							if(x>0 && checkSolid(blockData.value[blockOffset-BLOCKSPERCOLUMN], transparency)) {
+							if (checkSolid(this.getAdjNorthBlockId(x, y, z, blockOffset), transparency)) {
 								draw = true;
 								left = false;
-							} else if(x==0) {
-								Chunk leftChunk = level.getChunk(this.x-1, this.z);
-								if(leftChunk != null && checkSolid(leftChunk.getBlock(15, y, z), transparency)) {
-									draw = true;
-									left = false;
-								}
 							}
 						
 							// check right
-							if(x<15 && checkSolid(blockData.value[blockOffset+BLOCKSPERCOLUMN], transparency)) {
+							if (checkSolid(this.getAdjSouthBlockId(x, y, z, blockOffset), transparency)) {
 								draw = true;
 								right = false;
-							} else if(x==15) {
-								Chunk rightChunk = level.getChunk(this.x+1,this.z);
-								if(rightChunk != null && checkSolid(rightChunk.getBlock(0, y, z), transparency)) {
-									draw = true;
-									right = false;
-								}
 							}
 							
 							// check near
-							if(z>0 && checkSolid(blockData.value[blockOffset-BLOCKSPERROW], transparency)) {
+							if (checkSolid(this.getAdjEastBlockId(x, y, z, blockOffset), transparency)) {
 								draw = true;
 								near = false;
-							} else if(z==0) {
-								Chunk nearChunk = level.getChunk(this.x,this.z-1);
-								if(nearChunk != null && checkSolid(nearChunk.getBlock(x, y, 15), transparency)) {
-									draw = true;
-									near = false;
-								}
 							}
 							
 							// check far
-							if(z<15 && checkSolid(blockData.value[blockOffset+BLOCKSPERROW], transparency)) {
+							if (checkSolid(this.getAdjWestBlockId(x, y, z, blockOffset), transparency)) {
 								draw = true;
 								far = false;
-							} else if(z==15) {
-								Chunk farChunk = level.getChunk(this.x,this.z+1);
-								if(farChunk != null && checkSolid(farChunk.getBlock(x, y, 0), transparency)) {
-									draw = true;
-									far = false;
-								}
 							}
 						}
 					}
@@ -2807,7 +3218,10 @@ public class Chunk {
 								renderWallSign(textureId,x,y,z);
 								break;
 							case FENCE:
-								renderFence(textureId,x,y,z,blockOffset,t);
+								renderFence(textureId,x,y,z,blockOffset);
+								break;
+							case FENCE_GATE:
+								renderFenceGate(textureId,x,y,z,blockOffset);
 								break;
 							case LEVER:
 								renderLever(textureId,x,y,z);
@@ -2836,6 +3250,12 @@ public class Chunk {
 							case CAKE:
 								renderCake(textureId,x,y,z);
 								break;
+							case VINE:
+								renderVine(textureId,x,y,z,blockOffset);
+								break;
+							case SOLID_PANE:
+								renderSolidPane(textureId,x,y,z,blockOffset,t);
+								break;
 							case HALFHEIGHT:
 								if(draw) {
 									if(!near) this.renderWestEast(textureId, worldX+x, y, worldZ+z, 0f, .495f);
@@ -2855,6 +3275,88 @@ public class Chunk {
 								east = textureId;
 								top = textureId;
 								bottom = textureId;
+								if (block.type == BLOCK_TYPE.HUGE_MUSHROOM)
+								{
+									byte data = getData(x, y, z);
+									switch (data)
+									{
+										case 0:
+											north = TEX_HUGE_MUSHROOM_PORES;
+											south = TEX_HUGE_MUSHROOM_PORES;
+											west = TEX_HUGE_MUSHROOM_PORES;
+											east = TEX_HUGE_MUSHROOM_PORES;
+											top = TEX_HUGE_MUSHROOM_PORES;
+											bottom = TEX_HUGE_MUSHROOM_PORES;
+											break;
+									    case 1:
+											south = TEX_HUGE_MUSHROOM_PORES;
+											west = TEX_HUGE_MUSHROOM_PORES;
+											bottom = TEX_HUGE_MUSHROOM_PORES;
+											break;
+										case 2:
+											north = TEX_HUGE_MUSHROOM_PORES;
+											south = TEX_HUGE_MUSHROOM_PORES;
+											west = TEX_HUGE_MUSHROOM_PORES;
+											bottom = TEX_HUGE_MUSHROOM_PORES;
+											break;
+										case 3:
+											north = TEX_HUGE_MUSHROOM_PORES;
+											west = TEX_HUGE_MUSHROOM_PORES;
+											bottom = TEX_HUGE_MUSHROOM_PORES;
+											break;
+										case 4:
+											south = TEX_HUGE_MUSHROOM_PORES;
+											west = TEX_HUGE_MUSHROOM_PORES;
+											east = TEX_HUGE_MUSHROOM_PORES;
+											bottom = TEX_HUGE_MUSHROOM_PORES;
+											break;
+										case 5:
+											north = TEX_HUGE_MUSHROOM_PORES;
+											south = TEX_HUGE_MUSHROOM_PORES;
+											west = TEX_HUGE_MUSHROOM_PORES;
+											east = TEX_HUGE_MUSHROOM_PORES;
+											bottom = TEX_HUGE_MUSHROOM_PORES;
+											break;
+										case 6:
+											north = TEX_HUGE_MUSHROOM_PORES;
+											west = TEX_HUGE_MUSHROOM_PORES;
+											east = TEX_HUGE_MUSHROOM_PORES;
+											bottom = TEX_HUGE_MUSHROOM_PORES;
+											break;
+										case 7:
+											south = TEX_HUGE_MUSHROOM_PORES;
+											east = TEX_HUGE_MUSHROOM_PORES;
+											bottom = TEX_HUGE_MUSHROOM_PORES;
+											break;
+										case 8:
+											north = TEX_HUGE_MUSHROOM_PORES;
+											south = TEX_HUGE_MUSHROOM_PORES;
+											east = TEX_HUGE_MUSHROOM_PORES;
+											bottom = TEX_HUGE_MUSHROOM_PORES;
+											break;
+										case 9:
+											north = TEX_HUGE_MUSHROOM_PORES;
+											east = TEX_HUGE_MUSHROOM_PORES;
+											bottom = TEX_HUGE_MUSHROOM_PORES;
+											break;
+										case 10:
+											north = TEX_HUGE_MUSHROOM_STEM;
+											south = TEX_HUGE_MUSHROOM_STEM;
+											west = TEX_HUGE_MUSHROOM_STEM;
+											east = TEX_HUGE_MUSHROOM_STEM;
+											top = TEX_HUGE_MUSHROOM_PORES;
+											bottom = TEX_HUGE_MUSHROOM_PORES;
+											break;
+										default:
+											north = TEX_HUGE_MUSHROOM_PORES;
+											south = TEX_HUGE_MUSHROOM_PORES;
+											west = TEX_HUGE_MUSHROOM_PORES;
+											east = TEX_HUGE_MUSHROOM_PORES;
+											top = TEX_HUGE_MUSHROOM_PORES;
+											bottom = TEX_HUGE_MUSHROOM_PORES;
+											break;
+									}
+								}
 								if (block.texture_dir_map != null)
 								{
 									byte data = getData(x, y, z);

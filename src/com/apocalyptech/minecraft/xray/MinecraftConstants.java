@@ -89,6 +89,7 @@ public class MinecraftConstants {
 		SIGNPOST,
 		WALLSIGN,
 		FENCE,
+		FENCE_GATE,
 		LEVER,
 		BUTTON,
 		PORTAL,
@@ -98,7 +99,10 @@ public class MinecraftConstants {
 		SEMISOLID,
 		TRAPDOOR,
 		PISTON_BODY,
-		PISTON_HEAD
+		PISTON_HEAD,
+		VINE,
+		HUGE_MUSHROOM,
+		SOLID_PANE
 	}
 
 	// Some block types' renderers automatically use other textures that we don't
@@ -118,6 +122,14 @@ public class MinecraftConstants {
 		blockTypeExtraTextures.put(BLOCK_TYPE.PISTON_HEAD, new Integer[] {-1, 1, 2, 3});
 	}
 
+	// ... aand, because Huge Mushrooms are ridiculous, some hardcoded textures to reserve
+	public static int TEX_HUGE_MUSHROOM_STEM = 13+(16*8);
+	public static int TEX_HUGE_MUSHROOM_PORES = 14+(16*8);
+	public static int[] blockTypeAbsoluteTextures = new int[] {
+		TEX_HUGE_MUSHROOM_STEM,
+		TEX_HUGE_MUSHROOM_PORES
+	};
+
 	// Our BLOCK structure is no longer an Enum, since we're reading it from a file
 	public static BlockTypeCollection blockCollection = new BlockTypeCollection();
 
@@ -135,6 +147,9 @@ public class MinecraftConstants {
 	public static BlockType BLOCK_FIRE;
 	public static BlockType BLOCK_WATER;
 	public static BlockType BLOCK_STATIONARY_WATER;
+	public static BlockType BLOCK_FENCE;
+	public static BlockType BLOCK_FENCE_GATE;
+	public static BlockType BLOCK_IRON_BARS;
 
 	// A meta-block to use for unknown block types
 	public static BlockType BLOCK_UNKNOWN;
@@ -250,11 +265,32 @@ public class MinecraftConstants {
 			}
 			if (coll.getException() == null)
 			{
-				System.out.println("Got " + g + " modinfo " + coll.getName() + " (" + coll.getFile().getName() + "), " + coll.usedTextureCount() + " textures.");
-
-				// Temporarily import this, in case someone wants to fully X-Ray on 1.8-pre
-				// before I have a chance to actually put in Proper support for this
-				blockCollection.importFrom(coll, true);
+				// I think I will actually keep this the way it is, rather than create a GUI for
+				// loading these.  As I noticed during the 1.8 prerelease stuff, as I had been
+				// testing Aethermod things, people using mods might be fairly likely to shuffle
+				// their minecraft.jar file around quite a bit.  If I had gone forward with my
+				// previous plans, this would mean that whenever folks switched from, say, Aethermod
+				// to 1.8 (assuming here that Aethermod might take a little while to get updated
+				// to the 1.8 codebase), our stuff would disable Aether, and users would have to
+				// continually be going into that dialog to re-enable stuff.
+				//
+				// If we just auto-load everything all the time, then it should hopefully error
+				// out harmlessly on the ones that didn't load, and pick them up again once they
+				// can.  Of course, this DOES open ourselves up to issues if two mods use the same
+				// block ID, and a user is switching back and forth between them.  I feel okay
+				// requiring the user to manually swap out some blockdef files in that case, though.
+				try
+				{
+					// Do it without importing first.  If there are some obvious errors then we'd catch
+					// them before potentially polluting our blockCollection with partial blockdef files
+					blockCollection.importFrom(coll, false);
+					blockCollection.importFrom(coll, true);
+					System.out.println("Got " + g + " modinfo " + coll.getName() + " (" + coll.getFile().getName() + "), " + coll.usedTextureCount() + " textures.");
+				}
+				catch (BlockTypeLoadException e)
+				{
+					System.out.println("Error loading " + g + " modinfo at " + coll.getFile().getName() + ": " + e.toString());
+				}
 			}
 			else
 			{
@@ -324,6 +360,21 @@ public class MinecraftConstants {
 		{
 			throw new BlockTypeLoadException("STATIONARY_WATER block definition not found");
 		}
+		BLOCK_FENCE = blockCollection.getByName("FENCE");
+		if (BLOCK_FENCE == null)
+		{
+			throw new BlockTypeLoadException("FENCE block definition not found");
+		}
+		BLOCK_FENCE_GATE = blockCollection.getByName("FENCE_GATE");
+		if (BLOCK_FENCE_GATE == null)
+		{
+			throw new BlockTypeLoadException("FENCE_GATE block definition not found");
+		}
+		BLOCK_IRON_BARS = blockCollection.getByName("IRON_BARS");
+		if (BLOCK_IRON_BARS == null)
+		{
+			throw new BlockTypeLoadException("IRON_BARS block definition not found");
+		}
 
 		// We also define a "special" block for unknown block types, so that instead
 		// of empty space, they'll show up as purple blocks.
@@ -339,6 +390,12 @@ public class MinecraftConstants {
 
 		// Set our blockArray
 		blockArray = blockCollection.blockArray;
+
+		// Make sure we're reserving some hardcoded, absolute textures.
+		for (int tex : blockTypeAbsoluteTextures)
+		{
+			blockCollection.useTexture(tex);
+		}
 
 		// Clean up.
 		ExceptionDialog.clearExtraStatus();
